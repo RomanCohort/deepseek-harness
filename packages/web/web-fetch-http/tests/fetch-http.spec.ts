@@ -92,6 +92,17 @@ describe('policy helpers', () => {
     expect(decoderForCharset('iso-8859-1').encoding).toBe('windows-1252')
     expect(() => decoderForCharset('not-a-charset')).toThrow(expect.objectContaining({ code: 'WEB_UNSUPPORTED_CONTENT_TYPE' }))
   })
+
+  it('resolves a real encoding declared in a spelling outside the WHATWG table', () => {
+    // `latin-1` is absent from the label table `TextDecoder` resolves against
+    // (`latin1` and `iso-8859-1` are present); lowercase is `parseCharset`'s doing.
+    expect(decoderForCharset('latin-1').encoding).toBe('windows-1252')
+    // An unlisted spelling keeps the loud failure and still reports what arrived.
+    expect(() => decoderForCharset('latin-9')).toThrow(expect.objectContaining({
+      code: 'WEB_UNSUPPORTED_CONTENT_TYPE',
+      message: expect.stringContaining('latin-9'),
+    }))
+  })
 })
 
 describe('public-network policy', () => {
@@ -346,6 +357,15 @@ describe('HttpFetchProvider caps', () => {
     handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/plain; charset=iso-8859-1' }); res.end(Buffer.from([0x63, 0x61, 0x66, 0xE9])) }
     const result = await provider().fetch({ url: base })
     expect(result.body.content).toBe('café')
+  })
+
+  it('decodes a body whose declared charset is spelled outside the WHATWG table', async () => {
+    // Reproduces nsarchive2.gwu.edu, which declares the hyphenated `latin-1`.
+    // 0x80 is "€" in windows-1252 and an invalid UTF-8 byte, so a fallback to
+    // UTF-8 would yield U+FFFD and fail this assertion rather than pass it.
+    handler = (_req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=latin-1' }); res.end(Buffer.from([0x80])) }
+    const result = await provider().fetch({ url: base })
+    expect(result.body.content).toBe('€')
   })
 
   it('rejects an unsupported declared charset', async () => {

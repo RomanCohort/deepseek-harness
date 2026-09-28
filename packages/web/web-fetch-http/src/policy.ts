@@ -99,10 +99,29 @@ export function parseCharset(contentType: string | null): string | undefined {
 }
 
 /**
+ * Charset labels that denote a known encoding but are written outside the
+ * WHATWG label table `TextDecoder` resolves against. The table carries
+ * `latin1` and `iso-8859-1` but not the hyphenated `latin-1`; a server is free
+ * to declare any of them, and refusing the whole response over a spelling the
+ * standard never enumerated would drop readable text. Only labels with exactly
+ * one defensible decoding are listed here — `not-a-charset` and its like stay
+ * unlisted, so {@link decoderForCharset} still fails loudly rather than
+ * guessing.
+ */
+const CHARSET_ALIASES: ReadonlyMap<string, string> = new Map([
+  ['latin-1', 'windows-1252'],
+  ['cp-1252', 'windows-1252'],
+  ['windows-1251', 'windows-1251'],
+  ['cp-1251', 'windows-1251'],
+  ['koi8-r', 'koi8-r'],
+])
+
+/**
  * Build a `TextDecoder` for the declared charset, falling back to UTF-8 when
  * none is declared. Throws {@link WebError} `WEB_UNSUPPORTED_CONTENT_TYPE` when
- * the label is present but not a charset `TextDecoder` recognizes — better to
- * fail loudly than return mojibake.
+ * the label is present but denotes no encoding the provider can name — better to
+ * fail loudly than return mojibake. A label naming a real encoding in a spelling
+ * outside the WHATWG table is resolved through {@link CHARSET_ALIASES} first.
  *
  * @param charset - the declared charset label (from {@link parseCharset}), or
  *   `undefined` to default to UTF-8.
@@ -110,8 +129,9 @@ export function parseCharset(contentType: string | null): string | undefined {
  */
 export function decoderForCharset(charset: string | undefined): TextDecoder {
   if (charset === undefined) return new TextDecoder('utf-8')
+  const label = CHARSET_ALIASES.get(charset) ?? charset
   try {
-    return new TextDecoder(charset)
+    return new TextDecoder(label)
   } catch (error: unknown) {
     throw new WebError(`unsupported charset "${charset}"`, 'WEB_UNSUPPORTED_CONTENT_TYPE', { cause: error })
   }
